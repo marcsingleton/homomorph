@@ -1,0 +1,8 @@
+dist/
+.git/
+.idea/
+.ipynb_checkpoints/
+*.egg-info/
+*__pycache__/
+
+.DS_Store
