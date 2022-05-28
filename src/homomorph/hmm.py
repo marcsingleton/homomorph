@@ -1,3 +1,5 @@
+"""Classes and functions which implement HMM algorithms."""
+
 from functools import reduce
 from itertools import accumulate
 
@@ -171,8 +173,7 @@ class HMM:
         """
         # Forward pass
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        vs = {state: [(log(self._e_dists_rv[state].pmf(emits[0])) + log(self._start_dist_rv.pmf(state)), [None])]
-              for state in self._states}
+        vs = {state: [(log(self._e_dists_rv[state].pmf(emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._states}
         for i, emit in enumerate(emits[1:]):
             for state in self._states:
                 # Get probabilities
@@ -297,6 +298,11 @@ class HMM:
     def forward_backward(self, emits):
         """Infer state probabilities at each time point.
 
+        The probabilities are not re-normalized, so the sums of posterior
+        probabilities across states at a given time point will not necessarily
+        equal one. This is done to not give false confidence in the numerical
+        precision of the results.
+
         Parameters
         ----------
         emits: list
@@ -304,9 +310,8 @@ class HMM:
 
         Returns
         -------
-        fb: list of dicts
-            List where each element is a dict of state probabilities keyed by
-            the state labels.
+        fb: dict of lists
+            State probabilities at each time point keyed by the state labels.
         """
         fs, ss_f = self.forward(emits)
         bs, ss_b = self.backward(emits)
