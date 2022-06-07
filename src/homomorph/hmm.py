@@ -62,9 +62,10 @@ class HMM:
         if set(e_dists) != set(states):
             raise ValueError('States in e_dists do not match those in t_dists.')
         all_dicts = all([isinstance(e_dist, dict) for e_dist in e_dists.values()])
-        all_rvs = all([getattr(e_dist, 'pmf', None) and getattr(e_dist, 'rvs', None) for e_dist in e_dists.values()])
-        if not all_dicts and not all_rvs:
-            raise ValueError('e_dists are not either all dicts or all rvs.')
+        all_pmfs = all([getattr(e_dist, 'pmf', None) and getattr(e_dist, 'rvs', None) for e_dist in e_dists.values()])
+        all_pdfs = all([getattr(e_dist, 'pdf', None) and getattr(e_dist, 'rvs', None) for e_dist in e_dists.values()])
+        if not (all_dicts or all_pmfs or all_pdfs):
+            raise ValueError('e_dists are not either all dicts or all rvs of the same type.')
 
         # Check start_dist
         if not set(start_dist) <= states:
@@ -81,7 +82,7 @@ class HMM:
             idx = state2idx[state]
             t_dists_rv[idx] = rv_from_dict(t_dist, state2idx)
 
-        # Create random variates from e_dists
+        # Create random variates from e_dists if dictionaries
         if all_dicts:
             emits = {emit for e_dist in e_dists.values() for emit in e_dist}
             emit2idx = {}
@@ -102,6 +103,10 @@ class HMM:
             _emits = None
             e_dists_rv = {state2idx[state]: e_dist for state, e_dist in e_dists.items()}
 
+        # Extract probability functions from e_dists
+        attr = 'pdf' if all_pdfs else 'pmf'
+        e_dists_pf = {state: getattr(e_dist, attr) for state, e_dist in e_dists_rv.items()}
+
         # Create random variate from start_dist
         start_dist_rv = rv_from_dict(start_dist, state2idx)
 
@@ -117,6 +122,7 @@ class HMM:
         self._t_dists_rv = t_dists_rv
         self.e_dists = e_dists
         self._e_dists_rv = e_dists_rv
+        self._e_dists_pf = e_dists_pf
         self.start_dist = start_dist
         self._start_dist_rv = start_dist_rv
         self.stop_states = stop_states
@@ -173,13 +179,13 @@ class HMM:
         """
         # Forward pass
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        vs = {state: [(log(self._e_dists_rv[state].pmf(emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._states}
+        vs = {state: [(log(self._e_dists_pf[state](emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._states}
         for i, emit in enumerate(emits[1:]):
             for state in self._states:
                 # Get probabilities
                 t_probs = {s: vs[s][i][0] + log(self._t_dists_rv[s].pmf(state)) for s in self._states}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
-                e_prob = log(self._e_dists_rv[state].pmf(emit))
+                e_prob = log(self._e_dists_pf[state](emit))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
@@ -224,7 +230,7 @@ class HMM:
 
         # Initialize
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        fs = {state: [self._e_dists_rv[state].pmf(emits[0]) * self._start_dist_rv.pmf(state)] for state in self._states}
+        fs = {state: [self._e_dists_pf[state](emits[0]) * self._start_dist_rv.pmf(state)] for state in self._states}
         s = sum([fs[state][0] for state in self._states])
         for state in self._states:
             fs[state][0] /= s
@@ -236,7 +242,7 @@ class HMM:
             for state in self._states:
                 t_probs = [fs[s][i] * self._t_dists_rv[s].pmf(state) for s in self._states]
                 t_prob = sum(t_probs)  # Probability of all paths to state
-                e_prob = self._e_dists_rv[state].pmf(emit)
+                e_prob = self._e_dists_pf[state](emit)
                 fs[state].append(e_prob*t_prob)
 
             # Scale probabilities
@@ -283,7 +289,7 @@ class HMM:
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
             for state in self._states:
-                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_rv[s].pmf(emit) for s in self._states]
+                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_pf[s](emit) for s in self._states]
                 prob = sum(probs)  # Probability of all paths to state
                 bs[state].append(prob)
 
