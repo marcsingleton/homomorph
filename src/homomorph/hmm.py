@@ -1,7 +1,7 @@
 """Classes and functions which implement HMM algorithms."""
 
 from functools import reduce
-from itertools import accumulate
+from itertools import chain, accumulate
 
 import scipy.stats as stats
 from numpy import exp, log
@@ -103,12 +103,12 @@ class HMM:
             _emits = None
             e_dists_rv = {state2idx[state]: e_dist for state, e_dist in e_dists.items()}
 
+        # Create random variate from start_dist
+        start_dist_rv = rv_from_dict(start_dist, state2idx)
+
         # Extract probability functions from e_dists
         attr = 'pdf' if all_pdfs else 'pmf'
         e_dists_pf = {state: getattr(e_dist, attr) for state, e_dist in e_dists_rv.items()}
-
-        # Create random variate from start_dist
-        start_dist_rv = rv_from_dict(start_dist, state2idx)
 
         self.name = name
         self.states = states
@@ -360,9 +360,10 @@ class ARHMM:
         # Check e_dists
         if set(e_dists) != set(states):
             raise ValueError('States in e_dists do not match those in t_dists.')
-        all_rvs = all([getattr(e_dist, 'pmf', None) and getattr(e_dist, 'rvs', None) for e_dist in e_dists.values()])
-        if not all_rvs:
-            raise ValueError('e_dists are not all rvs.')
+        all_pmfs = all([getattr(e_dist, 'pmf', None) and getattr(e_dist, 'rvs', None) for e_dist in chain(e_dists.values(), start_e_dists.values())])
+        all_pdfs = all([getattr(e_dist, 'pdf', None) and getattr(e_dist, 'rvs', None) for e_dist in chain(e_dists.values(), start_e_dists.values())])
+        if not (all_pmfs or all_pdfs):
+            raise ValueError('e_dists and start_e_dists are not all rvs of the same type.')
 
         # Check start_dists
         start_states = set(start_t_dist)
@@ -389,6 +390,11 @@ class ARHMM:
         start_t_dist_rv = rv_from_dict(start_t_dist, state2idx)
         start_e_dists_rv = {state2idx[state]: e_dist for state, e_dist in start_e_dists.items()}
 
+        # Extract probability functions from e_dists
+        attr = 'pdf' if all_pdfs else 'pmf'
+        e_dists_pf = {state: getattr(e_dist, attr) for state, e_dist in e_dists_rv.items()}
+        start_e_dists_pf = {state: getattr(e_dist, attr) for state, e_dist in start_e_dists_rv.items()}
+
         self.name = name
         self.states = states
         self._states = set(idx2state)
@@ -398,10 +404,12 @@ class ARHMM:
         self._t_dists_rv = t_dists_rv
         self.e_dists = e_dists
         self._e_dists_rv = e_dists_rv
+        self._e_dists_pf = e_dists_pf
         self.start_t_dist = start_t_dist
         self._start_t_dist_rv = start_t_dist_rv
         self.start_e_dists = start_e_dists
         self._start_e_dists_rv = start_e_dists_rv
+        self._start_e_dists_rv = start_e_dists_pf
         self.start_states = start_states
         self._start_states = {state2idx[state] for state in self.start_states}
         self.stop_states = stop_states
@@ -433,13 +441,13 @@ class ARHMM:
         # Forward pass
         vs = {state: [(0, [None])] for state in self._states}
         for state in self._start_states:
-            vs[state] = [(log(self._start_e_dists_rv[state].pmf(emits[0])) + log(self._start_t_dist_rv.pmf(state)), [None])]
+            vs[state] = [(log(self._start_e_dists_pf[state](emits[0])) + log(self._start_t_dist_rv.pmf(state)), [None])]
         for i, emit in enumerate(emits[1:]):
             for state in self._states:
                 # Get probabilities
                 t_probs = {s: vs[s][i][0] + log(self._t_dists_rv[s].pmf(state)) for s in self._states}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
-                e_prob = log(self._e_dists_rv[state].pmf((emits[i], emit)))
+                e_prob = log(self._e_dists_pf[state]((emits[i], emit)))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
@@ -465,7 +473,7 @@ class ARHMM:
         # Initialize
         fs = {state: [0] for state in self._states}
         for state in self._start_states:
-            fs[state] = [self._start_e_dists_rv[state].pmf(emits[0]) * self._start_t_dist_rv.pmf(state)]
+            fs[state] = [self._start_e_dists_pf[state](emits[0]) * self._start_t_dist_rv.pmf(state)]
         s = sum([fs[state][0] for state in self._states])
         for state in self._states:
             fs[state][0] /= s
@@ -477,7 +485,7 @@ class ARHMM:
             for state in self._states:
                 t_probs = [fs[s][i] * self._t_dists_rv[s].pmf(state) for s in self._states]
                 t_prob = sum(t_probs)  # Probability of all paths to state
-                e_prob = self._e_dists_rv[state].pmf((emits[i], emit))
+                e_prob = self._e_dists_pf[state]((emits[i], emit))
                 fs[state].append(e_prob*t_prob)
 
             # Scale probabilities
@@ -503,7 +511,7 @@ class ARHMM:
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
             for state in self._states:
-                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_rv[s].pmf((emits[-(i+2)], emit)) for s in self._states]
+                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_pf[s]((emits[-(i+2)], emit)) for s in self._states]
                 prob = sum(probs)  # Probability of all paths to state
                 bs[state].append(prob)
 
