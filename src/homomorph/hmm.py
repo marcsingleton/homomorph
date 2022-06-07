@@ -150,16 +150,16 @@ class HMM:
         """
         if step_max == 0:
             return []
-        s0 = self._start_dist_rv.rvs()
-        e0 = self._e_dists_rv[s0].rvs()
-        steps = [(self._idx2state[s0], self._idx2emit[e0])]
+        state0 = self._start_dist_rv.rvs()
+        emit0 = self._e_dists_rv[state0].rvs()
+        steps = [(self._idx2state[state0], self._idx2emit[emit0])]
         for i in range(step_max-1):
-            if s0 in self._stop_states:
+            if state0 in self._stop_states:
                 return steps
-            s1 = self._t_dists_rv[s0].rvs()
-            e1 = self._e_dists_rv[s1].rvs()
-            steps.append((self._idx2state[s1], self._idx2emit[e1]))
-            s0 = s1
+            state1 = self._t_dists_rv[state0].rvs()
+            emit1 = self._e_dists_rv[state1].rvs()
+            steps.append((self._idx2state[state1], self._idx2emit[emit1]))
+            state0 = state1
         return steps
 
     def viterbi(self, emits):
@@ -181,15 +181,15 @@ class HMM:
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
         vs = {state: [(log(self._e_dists_pf[state](emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._states}
         for i, emit in enumerate(emits[1:]):
-            for state in self._states:
+            for state0 in self._states:
                 # Get probabilities
-                t_probs = {s: vs[s][i][0] + log(self._t_dists_rv[s].pmf(state)) for s in self._states}
+                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in self._states}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
-                e_prob = log(self._e_dists_pf[state](emit))
+                e_prob = log(self._e_dists_pf[state0](emit))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
-                vs[state].append((e_prob+t_prob, tb_states))
+                vs[state0].append((e_prob+t_prob, tb_states))
 
         # Compile traceback states (taking care to allow for multiple paths)
         v_max = max([v[-1][0] for v in vs.values()])
@@ -239,11 +239,11 @@ class HMM:
         # Forward pass
         for i, emit in enumerate(emits[1:]):
             # Get probabilities
-            for state in self._states:
-                t_probs = [fs[s][i] * self._t_dists_rv[s].pmf(state) for s in self._states]
+            for state0 in self._states:
+                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in self._states]
                 t_prob = sum(t_probs)  # Probability of all paths to state
-                e_prob = self._e_dists_pf[state](emit)
-                fs[state].append(e_prob*t_prob)
+                e_prob = self._e_dists_pf[state0](emit)
+                fs[state0].append(e_prob*t_prob)
 
             # Scale probabilities
             s = sum([fs[state][i+1] for state in self._states])
@@ -288,10 +288,10 @@ class HMM:
         # Backward pass
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
-            for state in self._states:
-                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_pf[s](emit) for s in self._states]
+            for state0 in self._states:
+                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1](emit) for state1 in self._states]
                 prob = sum(probs)  # Probability of all paths to state
-                bs[state].append(prob)
+                bs[state0].append(prob)
 
             # Scale probabilities
             s = sum([bs[state][i+1] for state in self._states])
@@ -424,17 +424,17 @@ class ARHMM:
     def simulate(self, step_max):
         if step_max == 0:
             return []
-        s0 = self._start_t_dist_rv.rvs()
-        e0 = self._start_e_dists_rv[s0].rvs()
-        steps = [(self._idx2state[s0], e0)]
+        state0 = self._start_t_dist_rv.rvs()
+        emit0 = self._start_e_dists_rv[state0].rvs()
+        steps = [(self._idx2state[state0], emit0)]
         for i in range(step_max-1):
-            if s0 in self._stop_states:
+            if state0 in self._stop_states:
                 return steps
-            s1 = self._t_dists_rv[s0].rvs()
-            e1 = self._e_dists_rv[s1].rvs(e0)
-            steps.append((self._idx2state[s1], e1))
-            s0 = s1
-            e0 = e1
+            state1 = self._t_dists_rv[state0].rvs()
+            emit1 = self._e_dists_rv[state1].rvs(emit0)
+            steps.append((self._idx2state[state1], emit1))
+            state0 = state1
+            emit0 = emit1
         return steps
 
     def viterbi(self, emits):
@@ -443,15 +443,15 @@ class ARHMM:
         for state in self._start_states:
             vs[state] = [(log(self._start_e_dists_pf[state](emits[0])) + log(self._start_t_dist_rv.pmf(state)), [None])]
         for i, emit in enumerate(emits[1:]):
-            for state in self._states:
+            for state0 in self._states:
                 # Get probabilities
-                t_probs = {s: vs[s][i][0] + log(self._t_dists_rv[s].pmf(state)) for s in self._states}
+                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in self._states}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
-                e_prob = log(self._e_dists_pf[state]((emits[i], emit)))
+                e_prob = log(self._e_dists_pf[state0]((emits[i], emit)))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
-                vs[state].append((e_prob+t_prob, tb_states))
+                vs[state0].append((e_prob+t_prob, tb_states))
 
         # Compile traceback states (taking care to allow for multiple paths)
         v_max = max([v[-1][0] for v in vs.values()])
@@ -482,11 +482,11 @@ class ARHMM:
         # Forward pass
         for i, emit in enumerate(emits[1:]):
             # Get probabilities
-            for state in self._states:
-                t_probs = [fs[s][i] * self._t_dists_rv[s].pmf(state) for s in self._states]
+            for state0 in self._states:
+                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in self._states]
                 t_prob = sum(t_probs)  # Probability of all paths to state
-                e_prob = self._e_dists_pf[state]((emits[i], emit))
-                fs[state].append(e_prob*t_prob)
+                e_prob = self._e_dists_pf[state0]((emits[i], emit))
+                fs[state0].append(e_prob*t_prob)
 
             # Scale probabilities
             s = sum([fs[state][i+1] for state in self._states])
@@ -510,10 +510,10 @@ class ARHMM:
         # Backward pass
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
-            for state in self._states:
-                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_pf[s]((emits[-(i+2)], emit)) for s in self._states]
+            for state0 in self._states:
+                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1]((emits[-(i+2)], emit)) for state1 in self._states]
                 prob = sum(probs)  # Probability of all paths to state
-                bs[state].append(prob)
+                bs[state0].append(prob)
 
             # Scale probabilities
             s = sum([bs[state][i+1] for state in self._states])
