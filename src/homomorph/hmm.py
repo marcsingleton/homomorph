@@ -74,7 +74,7 @@ class HMM:
         # Create random variates from t_dists
         state2idx = {}
         idx2state = {}
-        for idx, state in enumerate(states):
+        for idx, state in enumerate(sorted(states)):
             state2idx[state] = idx
             idx2state[idx] = state
         t_dists_rv = {}
@@ -88,7 +88,7 @@ class HMM:
             emit2idx = {}
             idx2emit = {}
             _emits = set()
-            for idx, emit in enumerate(emits):
+            for idx, emit in enumerate(sorted(emits)):
                 emit2idx[emit] = idx
                 idx2emit[idx] = emit
                 _emits.add(idx)
@@ -375,7 +375,7 @@ class ARHMM:
         # Create random variates from t_dists
         state2idx = {}
         idx2state = {}
-        for idx, state in enumerate(states):
+        for idx, state in enumerate(sorted(states)):
             state2idx[state] = idx
             idx2state[idx] = state
         t_dists_rv = {}
