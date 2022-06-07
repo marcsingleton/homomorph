@@ -334,6 +334,22 @@ class HMM:
 
 
 class ARHMM:
+    """A class for storing HMM model parameters and computing inferences from sequences of emissions.
+
+    The implementation is essentially identical to the HMM class with a few
+    exceptions to accommodate the emission distribution's dependence on the
+    previous emission. First, the pmf or pdf method of the emission
+    distributions must accept a tuple of the previous and current emissions,
+    respectively. (Consequently, dictionary style emission distributions are
+    not supported for ARHMMs.) The rvs method must also accept the previous
+    emission as its first argument. Second, an ARHMM requires additional start
+    emission distributions for each possible start state, as the behavior of
+    the emission distribution is technically undefined when there is no previous
+    emission.
+
+    Otherwise the ARHMM class is identical to the HMM class, so please refer to
+    it for addtional details.
+    """
     def __init__(self, t_dists, e_dists, start_t_dist, start_e_dists, stop_states=None, name='arhmm'):
         # Check t_dists
         states = set(t_dists)
@@ -423,7 +439,7 @@ class ARHMM:
                 # Get probabilities
                 t_probs = {s: vs[s][i][0] + log(self._t_dists_rv[s].pmf(state)) for s in self._states}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
-                e_prob = log(self._e_dists_rv[state].pmf(emits[i], emit))
+                e_prob = log(self._e_dists_rv[state].pmf((emits[i], emit)))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
@@ -461,7 +477,7 @@ class ARHMM:
             for state in self._states:
                 t_probs = [fs[s][i] * self._t_dists_rv[s].pmf(state) for s in self._states]
                 t_prob = sum(t_probs)  # Probability of all paths to state
-                e_prob = self._e_dists_rv[state].pmf(emits[i], emit)
+                e_prob = self._e_dists_rv[state].pmf((emits[i], emit))
                 fs[state].append(e_prob*t_prob)
 
             # Scale probabilities
@@ -487,7 +503,7 @@ class ARHMM:
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
             for state in self._states:
-                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_rv[s].pmf(emits[-(i+2)], emit) for s in self._states]
+                probs = [bs[s][i] * self._t_dists_rv[state].pmf(s) * self._e_dists_rv[s].pmf((emits[-(i+2)], emit)) for s in self._states]
                 prob = sum(probs)  # Probability of all paths to state
                 bs[state].append(prob)
 
