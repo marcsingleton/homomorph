@@ -42,7 +42,7 @@ class HMM:
         Dictionary mapping state to their probability of occurring as an
         initial state.
     stop_states: list of hashable objects, optional
-        State designated as a stop states. Simulations will terminate
+        States designated as a stop states. Simulations will terminate
         early if a stop state is encountered.
 
     Methods
@@ -71,6 +71,12 @@ class HMM:
         # Check start_dist
         if not set(start_dist) <= states:
             raise ValueError('start_dist contains a transition to an unknown state.')
+        
+        # Check stop states
+        if stop_states is None:
+            stop_states = []
+        if not set(stop_states) <= states:
+            raise ValueError('stop_states contains unknown state.')
 
         # Create random variates from t_dists
         state2idx = {}
@@ -127,7 +133,7 @@ class HMM:
         self.start_dist = start_dist
         self._start_dist_rv = start_dist_rv
         self.stop_states = stop_states
-        self._stop_states = [state2idx[state] for state in stop_states] if stop_states is not None else []
+        self._stop_states = {state2idx[state] for state in stop_states}
 
     def __repr__(self):
         pad = 4 * ' '
@@ -382,6 +388,12 @@ class ARHMM:
         if set(start_e_dists) != start_states:
             raise ValueError('States in start_e_dists do not match those in start_t_dist.')
 
+        # Check stop states
+        if stop_states is None:
+            stop_states = []
+        if not set(stop_states) <= states:
+            raise ValueError('stop_states contains unknown state.')
+
         # Create random variates from t_dists
         state2idx = {}
         idx2state = {}
@@ -423,7 +435,7 @@ class ARHMM:
         self.start_states = start_states
         self._start_states = {state2idx[state] for state in self.start_states}
         self.stop_states = stop_states
-        self._stop_states = [state2idx[state] for state in stop_states] if stop_states is not None else []
+        self._stop_states = {state2idx[state] for state in stop_states}
 
     def __repr__(self):
         pad = 6 * ' '
