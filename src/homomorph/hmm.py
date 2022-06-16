@@ -3,6 +3,7 @@
 from functools import reduce
 from itertools import chain, accumulate
 
+import numpy as np
 import scipy.stats as stats
 from numpy import exp, log
 
@@ -16,15 +17,15 @@ class HMM:
     passing all its parameters in the form of dictionaries, e.g. for the
     transition matrix a nested dictionary where the first and second levels
     correspond to rows and columns, respectively. Under the hood, however,
-    scipy rv_discrete objects are used as a convenient API for storing the pmf
-    and generating random variates. This allows for more flexible emission
-    distributions (such as those over a countably infinite support) to be
-    passed directly as rv_discrete objects. Currently only discrete random
-    variables are supported for emission distributions, largely since in the
-    scipy implementation of continuous random variables the pdf is accessed via
-    the pdf method (as opposed to the pmf method). Additionally, the
-    transition matrix can only be passed as a nested dictionary to ensure a
-    clear labeling of all states in the model.
+    SciPy random variable objects are used as a convenient API for storing the
+    pmf or pdf and generating random variates. This allows for more flexible
+    emission distributions (such as those over a countably infinite support)
+    to be passed directly as random variables.
+
+    When a custom random variable is used, it must implement a pmf or pdf
+    method that accepts where the function is evaluated as its first argument.
+    It must also implement an rvs method which accepts a random_state argument
+    to allow reproducibility.
 
     Parameters
     ----------
@@ -33,16 +34,16 @@ class HMM:
         dict selects a column in that row. Each possible state must have an
         entry in the outer dict. The probability masses of each distributions
         given as an inner dict must sum to 1.
-    e_dists: dict of dicts or dict of discrete_rvs
+    e_dists: dict of dicts or dict of SciPy random variables
         Outer dict is keyed by state. If dict of dicts, inner dict is a mapping
         of emission labels to probabilities. Combinations of inner dicts and
-        discrete_rvs are disallowed.
+        random variables are disallowed.
     start_dist: dict
-        Dictionary mapping state labels to their probability of occurring as an
+        Dictionary mapping state to their probability of occurring as an
         initial state.
     stop_states: list of hashable objects, optional
-        Labels of dictionary designated as stop state. Simulations will
-        terminate early if a stop state is encountered.
+        State designated as a stop states. Simulations will terminate
+        early if a stop state is encountered.
 
     Methods
     -------
@@ -134,7 +135,7 @@ class HMM:
                 f"{pad}stop_states={self.stop_states},\n"
                 f"{pad}name='{self.name}')")
 
-    def simulate(self, step_max):
+    def simulate(self, step_max, random_state=None):
         """Simulate progression of states up to a maximum number of steps.
 
         Parameters
@@ -142,22 +143,31 @@ class HMM:
         step_max: int
             Maximum number of steps to simulate. Simulation is terminated early
             if a stop state is encountered.
+        random_state: int or numpy.random.Generator
+            An int or an instance of the new random generator class.
 
         Returns
         -------
         steps: list of tuples
             List of tuples as (state, emission)
         """
+        if random_state is None:
+            random_state = np.random.default_rng()
+        elif isinstance(random_state, int):
+            random_state = np.random.default_rng(seed=random_state)
+        elif not isinstance(random_state, np.random.Generator):
+            raise ValueError('random_state is not int or np.random.Generator.')
+
         if step_max == 0:
             return []
-        state0 = self._start_dist_rv.rvs()
-        emit0 = self._e_dists_rv[state0].rvs()
+        state0 = self._start_dist_rv.rvs(random_state=random_state)
+        emit0 = self._e_dists_rv[state0].rvs(random_state=random_state)
         steps = [(self._idx2state[state0], self._idx2emit[emit0])]
         for i in range(step_max-1):
             if state0 in self._stop_states:
                 return steps
-            state1 = self._t_dists_rv[state0].rvs()
-            emit1 = self._e_dists_rv[state1].rvs()
+            state1 = self._t_dists_rv[state0].rvs(random_state=random_state)
+            emit1 = self._e_dists_rv[state1].rvs(random_state=random_state)
             steps.append((self._idx2state[state1], self._idx2emit[emit1]))
             state0 = state1
         return steps
@@ -337,7 +347,7 @@ class ARHMM:
     """A class for storing HMM model parameters and computing inferences from sequences of emissions.
 
     The implementation is essentially identical to the HMM class with a few
-    exceptions to accommodate the emission distribution's dependence on the
+    modifications to accommodate the emission distribution's dependence on the
     previous emission. First, the pmf or pdf method of the emission
     distributions must accept a tuple of the previous and current emissions,
     respectively. (Consequently, dictionary style emission distributions are
@@ -347,8 +357,8 @@ class ARHMM:
     the emission distribution is technically undefined when there is no previous
     emission.
 
-    Otherwise the ARHMM class is identical to the HMM class, so please refer to
-    it for addtional details.
+    Otherwise the ARHMM class is identical to the HMM class, so please refer
+    there for additional details.
     """
     def __init__(self, t_dists, e_dists, start_t_dist, start_e_dists, stop_states=None, name='arhmm'):
         # Check t_dists
@@ -421,17 +431,24 @@ class ARHMM:
                 f"{pad}stop_states={self.stop_states},\n"
                 f"{pad}name='{self.name}')")
 
-    def simulate(self, step_max):
+    def simulate(self, step_max, random_state=None):
+        if random_state is None:
+            random_state = np.random.default_rng()
+        elif isinstance(random_state, int):
+            random_state = np.random.default_rng(seed=random_state)
+        elif not isinstance(random_state, np.random.Generator):
+            raise ValueError('random_state is not int or np.random.Generator.')
+
         if step_max == 0:
             return []
-        state0 = self._start_t_dist_rv.rvs()
-        emit0 = self._start_e_dists_rv[state0].rvs()
+        state0 = self._start_t_dist_rv.rvs(random_state=random_state)
+        emit0 = self._start_e_dists_rv[state0].rvs(random_state=random_state)
         steps = [(self._idx2state[state0], emit0)]
         for i in range(step_max-1):
             if state0 in self._stop_states:
                 return steps
-            state1 = self._t_dists_rv[state0].rvs()
-            emit1 = self._e_dists_rv[state1].rvs(emit0)
+            state1 = self._t_dists_rv[state0].rvs(random_state=random_state)
+            emit1 = self._e_dists_rv[state1].rvs(emit0, random_state=random_state)
             steps.append((self._idx2state[state1], emit1))
             state0 = state1
             emit0 = emit1
