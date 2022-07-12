@@ -195,6 +195,9 @@ class HMM:
             emission sequence to have multiple distinct maximum probability
             state sequences.
         """
+        if not emits:  # Catch empty inputs
+            return [[]]
+
         # Forward pass
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
         vs = {state: [(log(self._e_dists_pf[state](emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._t_sets}
@@ -337,6 +340,9 @@ class HMM:
         fb: dict of lists
             State probabilities at each time point keyed by the state labels.
         """
+        if not emits:  # Catch empty inputs
+            return {state: [] for state in self.states}
+
         fs, ss_f = self.forward(emits)
         bs, ss_b = self.backward(emits)
         p = reduce(lambda x, y: x+y, map(log, ss_f))
@@ -471,6 +477,9 @@ class ARHMM:
         return steps
 
     def viterbi(self, emits):
+        if not emits:  # Catch empty inputs
+            return [[]]
+        
         # Forward pass
         vs = {state: [(-np.inf, [None])] for state in self._t_sets}
         for state in self._start_states:
@@ -557,6 +566,9 @@ class ARHMM:
         return {self._idx2state[state]: b[::-1] for state, b in bs.items()}, ss[::-1]  # Convert to external labels and undo reversal
 
     def forward_backward(self, emits):
+        if not emits:  # Catch empty inputs
+            return {state: [] for state in self.states}
+
         fs, ss_f = self.forward(emits)
         bs, ss_b = self.backward(emits)
         p = reduce(lambda x, y: x+y, map(log, ss_f))
