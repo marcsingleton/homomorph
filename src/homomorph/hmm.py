@@ -71,7 +71,7 @@ class HMM:
         # Check start_dist
         if not set(start_dist) <= states:
             raise ValueError('start_dist contains a transition to an unknown state.')
-        
+
         # Check stop states
         if stop_states is None:
             stop_states = []
@@ -85,9 +85,11 @@ class HMM:
             state2idx[state] = idx
             idx2state[idx] = state
         t_dists_rv = {}
+        t_sets = {}
         for state, t_dist in t_dists.items():
             idx = state2idx[state]
             t_dists_rv[idx] = rv_from_dict(t_dist, state2idx)
+            t_sets[idx] = {state2idx[state] for state in t_dist}
 
         # Create random variates from e_dists if dictionaries
         if all_dicts:
@@ -119,7 +121,6 @@ class HMM:
 
         self.name = name
         self.states = states
-        self._states = set(idx2state)
         self._state2idx = state2idx
         self._idx2state = idx2state
         self.emits = emits
@@ -127,6 +128,7 @@ class HMM:
         self._idx2emit = idx2emit
         self.t_dists = t_dists
         self._t_dists_rv = t_dists_rv
+        self._t_sets = t_sets
         self.e_dists = e_dists
         self._e_dists_rv = e_dists_rv
         self._e_dists_pf = e_dists_pf
@@ -195,17 +197,17 @@ class HMM:
         """
         # Forward pass
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        vs = {state: [(log(self._e_dists_pf[state](emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._states}
+        vs = {state: [(log(self._e_dists_pf[state](emits[0])) + log(self._start_dist_rv.pmf(state)), [None])] for state in self._t_sets}
         for i, emit in enumerate(emits[1:]):
-            for state0 in self._states:
+            for state0, t_set in self._t_sets.items():
                 # Get probabilities
-                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in self._states}
+                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in t_set}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
                 e_prob = log(self._e_dists_pf[state0](emit))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
-                vs[state0].append((e_prob+t_prob, tb_states))
+                vs[state0].append((e_prob + t_prob, tb_states))
 
         # Compile traceback states (taking care to allow for multiple paths)
         v_max = max([v[-1][0] for v in vs.values()])
@@ -246,25 +248,25 @@ class HMM:
 
         # Initialize
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        fs = {state: [self._e_dists_pf[state](emits[0]) * self._start_dist_rv.pmf(state)] for state in self._states}
-        s = sum([fs[state][0] for state in self._states])
-        for state in self._states:
-            fs[state][0] /= s
+        fs = {state: [self._e_dists_pf[state](emits[0]) * self._start_dist_rv.pmf(state)] for state in self._t_sets}
+        s = sum([f[0] for f in fs.values()])
+        for f in fs.values():
+            f[0] /= s
         ss = [s]
 
         # Forward pass
         for i, emit in enumerate(emits[1:]):
             # Get probabilities
-            for state0 in self._states:
-                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in self._states]
+            for state0, t_set in self._t_sets.items():
+                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in t_set]
                 t_prob = sum(t_probs)  # Probability of all paths to state
                 e_prob = self._e_dists_pf[state0](emit)
-                fs[state0].append(e_prob*t_prob)
+                fs[state0].append(e_prob * t_prob)
 
             # Scale probabilities
-            s = sum([fs[state][i+1] for state in self._states])
-            for state in self._states:
-                fs[state][i+1] /= s
+            s = sum([fs[state][i+1] for state in self._t_sets])
+            for f in fs.values():
+                f[i+1] /= s
             ss.append(s)
 
         return {self._idx2state[state]: f for state, f in fs.items()}, ss  # Convert to external labels
@@ -295,24 +297,24 @@ class HMM:
 
         # Initialize
         emits = [self._emit2idx[emit] for emit in emits]  # Convert emits to internal labels
-        bs = {state: [1] for state in self._states}
-        s = sum([bs[state][0] for state in self._states])
-        for state in self._states:
-            bs[state][0] /= s
+        bs = {state: [1] for state in self._t_sets}
+        s = sum([b[0] for b in bs.values()])
+        for b in bs.values():
+            b[0] /= s
         ss = [s]
 
         # Backward pass
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
-            for state0 in self._states:
-                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1](emit) for state1 in self._states]
+            for state0, t_set in self._t_sets.items():
+                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1](emit) for state1 in t_set]
                 prob = sum(probs)  # Probability of all paths to state
                 bs[state0].append(prob)
 
             # Scale probabilities
-            s = sum([bs[state][i+1] for state in self._states])
-            for state in self._states:
-                bs[state][i+1] /= s
+            s = sum([b[i+1] for b in bs.values()])
+            for b in bs.values():
+                b[i+1] /= s
             ss.append(s)
 
         return {self._idx2state[state]: b[::-1] for state, b in bs.items()}, ss[::-1]  # Convert to external labels and undo reversal
@@ -344,7 +346,7 @@ class HMM:
         fbs = {state: [] for state in self.states}
         for i in range(len(emits)):
             for state, fb in fbs.items():
-                fbs[state].append(fs[state][i]*bs[state][i]*exp(ss_f[i]+ss_b[i]-p))
+                fb.append(fs[state][i]*bs[state][i]*exp(ss_f[i]+ss_b[i]-p))
 
         return fbs
 
@@ -401,9 +403,11 @@ class ARHMM:
             state2idx[state] = idx
             idx2state[idx] = state
         t_dists_rv = {}
+        t_sets = {}
         for state, t_dist in t_dists.items():
             idx = state2idx[state]
             t_dists_rv[idx] = rv_from_dict(t_dist, state2idx)
+            t_sets[idx] = {state2idx[state] for state in t_dist}
 
         # Create random variates from e_dists
         e_dists_rv = {state2idx[state]: e_dist for state, e_dist in e_dists.items()}
@@ -419,11 +423,11 @@ class ARHMM:
 
         self.name = name
         self.states = states
-        self._states = set(idx2state)
         self._state2idx = state2idx
         self._idx2state = idx2state
         self.t_dists = t_dists
         self._t_dists_rv = t_dists_rv
+        self._t_sets = t_sets
         self.e_dists = e_dists
         self._e_dists_rv = e_dists_rv
         self._e_dists_pf = e_dists_pf
@@ -468,19 +472,19 @@ class ARHMM:
 
     def viterbi(self, emits):
         # Forward pass
-        vs = {state: [(0, [None])] for state in self._states}
+        vs = {state: [(0, [None])] for state in self._t_sets}
         for state in self._start_states:
             vs[state] = [(log(self._start_e_dists_pf[state](emits[0])) + log(self._start_t_dist_rv.pmf(state)), [None])]
         for i, emit in enumerate(emits[1:]):
-            for state0 in self._states:
+            for state0, t_set in self._t_sets.items():
                 # Get probabilities
-                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in self._states}
+                t_probs = {state1: vs[state1][i][0] + log(self._t_dists_rv[state1].pmf(state0)) for state1 in t_set}
                 t_prob = max(t_probs.values())  # Probability of most likely path to state
                 e_prob = log(self._e_dists_pf[state0]((emits[i], emit)))
 
                 # Get traceback states
                 tb_states = [s for s, p in t_probs.items() if p == t_prob]
-                vs[state0].append((e_prob+t_prob, tb_states))
+                vs[state0].append((e_prob + t_prob, tb_states))
 
         # Compile traceback states (taking care to allow for multiple paths)
         v_max = max([v[-1][0] for v in vs.values()])
@@ -500,27 +504,27 @@ class ARHMM:
             return {state: [] for state in self.states}, []
 
         # Initialize
-        fs = {state: [0] for state in self._states}
+        fs = {state: [0] for state in self._t_sets}
         for state in self._start_states:
             fs[state] = [self._start_e_dists_pf[state](emits[0]) * self._start_t_dist_rv.pmf(state)]
-        s = sum([fs[state][0] for state in self._states])
-        for state in self._states:
-            fs[state][0] /= s
+        s = sum([f[0] for f in fs.values()])
+        for f in fs.values():
+            f[0] /= s
         ss = [s]
 
         # Forward pass
         for i, emit in enumerate(emits[1:]):
             # Get probabilities
-            for state0 in self._states:
-                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in self._states]
+            for state0, t_set in self._t_sets.items():
+                t_probs = [fs[state1][i] * self._t_dists_rv[state1].pmf(state0) for state1 in t_set]
                 t_prob = sum(t_probs)  # Probability of all paths to state
                 e_prob = self._e_dists_pf[state0]((emits[i], emit))
-                fs[state0].append(e_prob*t_prob)
+                fs[state0].append(e_prob * t_prob)
 
             # Scale probabilities
-            s = sum([fs[state][i+1] for state in self._states])
-            for state in self._states:
-                fs[state][i+1] /= s
+            s = sum([f[i+1] for f in fs.values()])
+            for f in fs.values():
+                f[i+1] /= s
             ss.append(s)
 
         return {self._idx2state[state]: f for state, f in fs.items()}, ss  # Convert to external labels
@@ -530,24 +534,24 @@ class ARHMM:
             return {state: [] for state in self.states}, []
 
         # Initialize
-        bs = {state: [1] for state in self._states}
-        s = sum([bs[state][0] for state in self._states])
-        for state in self._states:
-            bs[state][0] /= s
+        bs = {state: [1] for state in self._t_sets}
+        s = sum([b[0] for b in bs.values()])
+        for b in bs.values():
+            b[0] /= s
         ss = [s]
 
         # Backward pass
         for i, emit in enumerate(emits[:0:-1]):  # Reverse sequence starting from last emit excluding first
             # Get probabilities
-            for state0 in self._states:
-                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1]((emits[-(i+2)], emit)) for state1 in self._states]
+            for state0, t_set in self._t_sets.items():
+                probs = [bs[state1][i] * self._t_dists_rv[state0].pmf(state1) * self._e_dists_pf[state1]((emits[-(i+2)], emit)) for state1 in t_set]
                 prob = sum(probs)  # Probability of all paths to state
                 bs[state0].append(prob)
 
             # Scale probabilities
-            s = sum([bs[state][i+1] for state in self._states])
-            for state in self._states:
-                bs[state][i+1] /= s
+            s = sum([b[i+1] for b in bs.values()])
+            for b in bs.values():
+                b[i+1] /= s
             ss.append(s)
 
         return {self._idx2state[state]: b[::-1] for state, b in bs.items()}, ss[::-1]  # Convert to external labels and undo reversal
@@ -562,7 +566,7 @@ class ARHMM:
         fbs = {state: [] for state in self.states}
         for i in range(len(emits)):
             for state, fb in fbs.items():
-                fbs[state].append(fs[state][i]*bs[state][i]*exp(ss_f[i]+ss_b[i]-p))
+                fb.append(fs[state][i]*bs[state][i]*exp(ss_f[i]+ss_b[i]-p))
 
         return fbs
 
