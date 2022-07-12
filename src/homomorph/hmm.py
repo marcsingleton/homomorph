@@ -472,7 +472,7 @@ class ARHMM:
 
     def viterbi(self, emits):
         # Forward pass
-        vs = {state: [(0, [None])] for state in self._t_sets}
+        vs = {state: [(-np.inf, [None])] for state in self._t_sets}
         for state in self._start_states:
             vs[state] = [(log(self._start_e_dists_pf[state](emits[0])) + log(self._start_t_dist_rv.pmf(state)), [None])]
         for i, emit in enumerate(emits[1:]):
