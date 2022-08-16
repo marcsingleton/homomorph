@@ -479,7 +479,7 @@ class ARHMM:
     def viterbi(self, emits):
         if not emits:  # Catch empty inputs
             return [[]]
-        
+
         # Forward pass
         vs = {state: [(-np.inf, [None])] for state in self._t_sets}
         for state in self._start_states:
