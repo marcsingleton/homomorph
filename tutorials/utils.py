@@ -75,7 +75,7 @@ class HMM(homomorph.HMM):
 
 
 def fit_CML(data, t_dists, e_params, e_funcs, e_primes, e_param2aux, e_aux2param, start_dist,
-            maxiter=100, epsilon=1E-4, eta=1):
+            maxiter=100, epsilon=1E-4, eta=1, verbose=True):
     """Fit data to HMM using conditional maximum likelihood training."""
     # Copy parameters and convert to auxiliary variables
     t_dists = deepcopy(t_dists)
@@ -159,29 +159,31 @@ def fit_CML(data, t_dists, e_params, e_funcs, e_primes, e_param2aux, e_aux2param
         # For example, 0th iterate shows initial parameters and 1st iterate shows results of first update
         ll = sum([gradient['ll'] for gradient in gradients])
         if ll0 is not None and abs(ll - ll0) < epsilon:
-            print(f'FINAL VALUES')
+            if verbose:
+                print(f'FINAL VALUES')
+                print('log-likelihood:', ll)
+                print('Δlog-likelihood:', ll - ll0 if ll0 is not None else None)
+                print('t_dists:', t_string)
+                print('e_params:', e_string)
+                print('start_dist:', start_string)
+            break
+
+        # Print results
+        if verbose:
+            print(f'ITERATION {numiter}')
             print('log-likelihood:', ll)
             print('Δlog-likelihood:', ll - ll0 if ll0 is not None else None)
             print('t_dists:', t_string)
             print('e_params:', e_string)
             print('start_dist:', start_string)
-            break
-
-        # Print results
-        print(f'ITERATION {numiter}')
-        print('log-likelihood:', ll)
-        print('Δlog-likelihood:', ll - ll0 if ll0 is not None else None)
-        print('t_dists:', t_string)
-        print('e_dists:', e_string)
-        print('start_dist:', start_string)
-        print()
+            print()
 
         # Accumulate and apply gradients
-        # for state1, t_dist_aux in t_dists_aux.items():
-        #     for state2 in t_dist_aux:
-        #         grad_stack = np.hstack([gradient['t_grads_aux'][state1][state2] for gradient in gradients])
-        #         dz = eta * grad_stack.sum() / len(grad_stack)
-        #         t_dist_aux[state2] -= dz
+        for state1, t_dist_aux in t_dists_aux.items():
+            for state2 in t_dist_aux:
+                grad_stack = np.hstack([gradient['t_grads_aux'][state1][state2] for gradient in gradients])
+                dz = eta * grad_stack.sum() / len(grad_stack)
+                t_dist_aux[state2] -= dz
 
         for state, e_param_aux in e_params_aux.items():
             for aux in e_param_aux:
